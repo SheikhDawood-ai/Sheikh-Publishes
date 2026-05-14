@@ -1,0 +1,15 @@
+{
+  "name": "LancerIntel Pro",
+  "description": "Multi-tenant AI market intelligence platform with real-time search grounding and strategic consulting.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "Conversational Onboarding",
+    "Multi-Profile Intelligence",
+    "Stripe Pro Entitlements",
+    "Google Search Grounding",
+    "Audio Sentiment Analysis"
+  ]
+}

@@ -1,0 +1,60 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Profile",
+      "description": "User account and subscription data.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "subscriptionStatus": { "type": "string", "enum": ["free", "pro"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email"]
+    },
+    "BusinessProfile": {
+      "title": "Business Identity",
+      "description": "A specific business persona or niche profile.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "niche": { "type": "string" },
+        "techStack": { "type": "array", "items": { "type": "string" } },
+        "goals": { "type": "string" },
+        "marketIntelligence": { "type": "object", "description": "Search-grounded insights for this specific niche." },
+        "onboardingComplete": { "type": "boolean" }
+      }
+    },
+    "Opportunity": {
+      "title": "Freelance Opportunity",
+      "description": "An aggregated job or freelance project.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "platform": { "type": "string" },
+        "budget": { "type": "string" },
+        "scores": { "type": "object" },
+        "profileId": { "type": "string", "description": "The profile this opportunity was surfaced for." }
+      }
+    }
+  },
+  "firestore": {
+    "users": {
+      "schema": "User",
+      "description": "Root user records."
+    },
+    "users/{userId}/profiles": {
+      "schema": "BusinessProfile",
+      "description": "Multi-tenant business profiles for the user."
+    },
+    "users/{userId}/profiles/{profileId}/opportunities": {
+      "schema": "Opportunity",
+      "description": "Surfaced opportunities for a specific profile."
+    }
+  }
+}

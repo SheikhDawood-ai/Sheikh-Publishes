@@ -1,0 +1,62 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Primitives ---
+    function isSignedIn() { return request.auth != null; }
+    function isVerified() { return isSignedIn() && request.auth.token.email_verified == true; }
+    function isOwner(userId) { return isVerified() && request.auth.uid == userId; }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
+
+    // --- Entity Validations ---
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'email', 'subscriptionStatus', 'createdAt'])
+        && data.uid == request.auth.uid 
+        && data.email is string && data.email.size() <= 256
+        && data.subscriptionStatus in ['free', 'pro']
+        && (data.get('displayName', '') is string && data.get('displayName', '').size() <= 128)
+        && data.createdAt == (resource == null ? request.time : existing().createdAt);
+    }
+
+    function isValidProfile(data) {
+      return data.keys().hasAll(['id', 'name', 'niche'])
+        && data.id is string && data.id.size() <= 128
+        && data.name is string && data.name.size() <= 128
+        && data.niche is string && data.niche.size() <= 128
+        && (resource == null || (incoming().id == existing().id));
+    }
+
+    // --- Collection Rules ---
+
+    match /users/{userId} {
+      allow get: if isOwner(userId);
+      allow create: if isOwner(userId) && isValidUser(incoming());
+      allow update: if isOwner(userId) && isValidUser(incoming()) && (
+        // Action: Profile Update
+        incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'updatedAt']) ||
+        // Action: Subscription Upgrade
+        incoming().diff(existing()).affectedKeys().hasOnly(['subscriptionStatus', 'updatedAt'])
+      );
+      
+      match /profiles/{profileId} {
+        allow list: if isOwner(userId);
+        allow get: if isOwner(userId) && isValidId(profileId);
+        allow create: if isOwner(userId) && isValidId(profileId) && isValidProfile(incoming());
+        allow update: if isOwner(userId) && isValidId(profileId) && isValidProfile(incoming()) && (
+          incoming().diff(existing()).affectedKeys().hasOnly(['name', 'niche', 'updatedAt'])
+        );
+        allow delete: if isOwner(userId) && isValidId(profileId);
+
+        match /opportunities/{oppId} {
+          allow read, write: if isOwner(userId) && isValidId(profileId) && isValidId(oppId);
+        }
+      }
+    }
+  }
+}
