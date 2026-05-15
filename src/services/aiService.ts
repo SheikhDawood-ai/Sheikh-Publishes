@@ -1,62 +1,75 @@
 // AI service using backend proxy for security and performance (SSE support)
-import { SchemaType } from "@google/generative-ai";
+import { GoogleGenAI, Type } from "@google/genai";
+
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 export const aiService = {
   /**
-   * Deep dive dialogue analyst with SSE (Server-Sent Events) backend support
+   * Deep dive dialogue analyst
    */
   startOnboardingConsultant: async (userResponse: string, history: any[] = [], onStream?: (text: string) => void) => {
     try {
-      const response = await fetch('/api/ai/stream', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          prompt: userResponse,
-          history: history.map(h => ({
-            role: h.role === 'user' ? 'user' : 'model',
-            content: typeof h.parts[0].text === 'string' ? h.parts[0].text : JSON.stringify(h.parts[0].text)
-          })),
-          systemInstruction: "You are a Senior Strategic Business Consultant. Analyze the freelancer's input and ask ONE deep strategic question. MANDATORY: At the end of your response, provide 3-4 'Quick Reply' options in strictly this format: CHIPS: [Option 1], [Option 2], [Option 3]"
-        })
+      const formattedHistory = history.map(h => {
+        let contentText = "";
+        if (h.parts && Array.isArray(h.parts) && h.parts.length > 0) {
+          contentText = typeof h.parts[0].text === 'string' ? h.parts[0].text : JSON.stringify(h.parts[0].text);
+        } else if (h.content) {
+          contentText = h.content;
+        } else if (h.text) {
+          contentText = h.text;
+        }
+        return {
+          role: h.role === 'user' ? 'user' : 'model',
+          parts: [{ text: contentText }]
+        };
       });
 
-      if (!response.ok) throw new Error('Network response was not ok');
-      const reader = response.body?.getReader();
-      const decoder = new TextDecoder();
+      // Ensure history starts with a user message as per Gemini requirements
+      const firstUserIndex = formattedHistory.findIndex(h => h.role === 'user');
+      const cleanHistory = firstUserIndex !== -1 ? formattedHistory.slice(firstUserIndex) : [];
+
+      const chat = ai.chats.create({
+        model: "gemini-3-flash-preview",
+        config: {
+          systemInstruction: "You are a Senior Strategic Business Consultant. Analyze the freelancer's input and ask ONE deep strategic question. MANDATORY: At the end of your response, provide 3-4 'Quick Reply' options in strictly this format: CHIPS: [Option 1], [Option 2], [Option 3]"
+        },
+        history: cleanHistory as any
+      });
+
+      const response = await chat.sendMessageStream({ message: userResponse });
       let fullText = "";
 
-      if (reader) {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          const chunk = decoder.decode(value);
-          const lines = chunk.split('\n');
-          for (const line of lines) {
-            if (line.startsWith('data: ')) {
-              const dataStr = line.slice(6);
-              if (dataStr === '[DONE]') break;
-              try {
-                const data = JSON.parse(dataStr);
-                if (data.text) {
-                  fullText += data.text;
-                  if (onStream) onStream(fullText);
-                }
-              } catch (e) {
-                // Partial JSON or heartbeat
-              }
-            }
-          }
+      for await (const chunk of response) {
+        if (chunk.text) {
+          fullText += chunk.text;
+          if (onStream) onStream(fullText);
         }
       }
+
       return { text: fullText };
-    } catch (e) {
-      console.error("Streaming Error:", e);
+    } catch (e: any) {
+      console.error("AI Error:", e);
+      if (e.message?.includes("API key not valid")) {
+         return { text: "Protocol Error: Gemini API key is missing or invalid. Please check your project secrets." };
+      }
       return { text: "Signal interference detected. Attempting to reconnect the tactical link... Should we focus on niche target or tech stack?" };
     }
   },
 
   /**
-   * Enhanced Market Research via Backend Proxy
+   * General neural chat interface
+   */
+  chat: async (message: string, history: any[] = []): Promise<string> => {
+    try {
+      const response = await aiService.startOnboardingConsultant(message, history);
+      return response.text;
+    } catch (e) {
+      return "Neural link offline. Please re-initialize.";
+    }
+  },
+
+  /**
+   * Enhanced Market Research
    */
   performMarketResearch: async (niche: string, onStatus?: (status: string) => void) => {
     const statuses = [
@@ -74,12 +87,12 @@ export const aiService = {
         }
       }
 
-      const response = await fetch('/api/ai/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          prompt: `Perform a deep 2026 market analysis for the "${niche}" niche. Return valid JSON.`,
-          schema: {
+      const response = await ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: `Perform a deep 2026 market analysis for the "${niche}" niche. Return valid JSON.`,
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
             type: Type.OBJECT,
             properties: {
               trends: { type: Type.ARRAY, items: { type: Type.STRING } },
@@ -96,11 +109,12 @@ export const aiService = {
               }
             }
           }
-        })
+        }
       });
 
-      return await response.json();
-    } catch (e) {
+      if (!response.text) throw new Error('Research link failure.');
+      return JSON.parse(response.text);
+    } catch (e: any) {
       console.error("Research Error:", e);
       return null;
     }
@@ -111,22 +125,23 @@ export const aiService = {
    */
   parseProfileShift: async (text: string) => {
     try {
-      const response = await fetch('/api/ai/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          prompt: `Parse this business direction shift and return a structured object: "${text}"`,
-          schema: {
-            type: SchemaType.OBJECT,
+      const response = await ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: `Parse this business direction shift and return a structured object: "${text}"`,
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
             properties: {
-              niche: { type: SchemaType.STRING },
-              techStack: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING } },
-              goals: { type: SchemaType.STRING }
+              niche: { type: Type.STRING },
+              techStack: { type: Type.ARRAY, items: { type: Type.STRING } },
+              goals: { type: Type.STRING }
             }
           }
-        })
+        }
       });
-      return await response.json();
+      if (!response.text) throw new Error('Shift analysis failure.');
+      return JSON.parse(response.text);
     } catch (e) {
       return null;
     }
@@ -137,34 +152,35 @@ export const aiService = {
    */
   analyzeOpportunity: async (jobData: any) => {
     try {
-      const response = await fetch('/api/ai/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          prompt: `Analyze this freelance job posting and provide:
+      const response = await ai.models.generateContent({
+        model: "gemini-3.1-pro-preview",
+        contents: `Analyze this freelance job posting and provide:
             1. A concise summary.
             2. Scores (0-100) for: Demand, Competition, Complexity, AI-Leverage.
             3. underserved angles or hooks.
             Job: ${JSON.stringify(jobData)}`,
-          schema: {
-            type: SchemaType.OBJECT,
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
             properties: {
-              summary: { type: SchemaType.STRING },
+              summary: { type: Type.STRING },
               scores: {
-                type: SchemaType.OBJECT,
+                type: Type.OBJECT,
                 properties: {
-                  demand: { type: SchemaType.NUMBER },
-                  competition: { type: SchemaType.NUMBER },
-                  complexity: { type: SchemaType.NUMBER },
-                  aiLeverage: { type: SchemaType.NUMBER }
+                  demand: { type: Type.NUMBER },
+                  competition: { type: Type.NUMBER },
+                  complexity: { type: Type.NUMBER },
+                  aiLeverage: { type: Type.NUMBER }
                 }
               },
-              hooks: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING } }
+              hooks: { type: Type.ARRAY, items: { type: Type.STRING } }
             }
           }
-        })
+        }
       });
-      return await response.json();
+      if (!response.text) throw new Error('Analysis link failure.');
+      return JSON.parse(response.text);
     } catch (error) {
       console.error("AI Analysis Error:", error);
       return null;
@@ -176,32 +192,33 @@ export const aiService = {
    */
   getFinancialAdvice: async (spendingData: any[], userProfile: string) => {
     try {
-      const response = await fetch('/api/ai/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          prompt: `As a high-level financial advisor for a ${userProfile}, analyze these spending records and provide insights: ${JSON.stringify(spendingData.slice(0, 30))}`,
-          schema: {
-            type: SchemaType.OBJECT,
+      const response = await ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: `As a high-level financial advisor for a ${userProfile}, analyze these spending records and provide insights: ${JSON.stringify(spendingData.slice(0, 30))}`,
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
             properties: {
-              summary: { type: SchemaType.STRING },
+              summary: { type: Type.STRING },
               suggestions: { 
-                type: SchemaType.ARRAY, 
+                type: Type.ARRAY, 
                 items: { 
-                  type: SchemaType.OBJECT,
+                  type: Type.OBJECT,
                   properties: {
-                    title: { type: SchemaType.STRING },
-                    action: { type: SchemaType.STRING },
-                    impact: { type: SchemaType.STRING }
+                    title: { type: Type.STRING },
+                    action: { type: Type.STRING },
+                    impact: { type: Type.STRING }
                   }
                 } 
               },
-              savings: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING } }
+              savings: { type: Type.ARRAY, items: { type: Type.STRING } }
             }
           }
-        })
+        }
       });
-      return await response.json();
+      if (!response.text) throw new Error('Financial advice link failure.');
+      return JSON.parse(response.text);
     } catch (error) {
       console.error("Finance Advice Error:", error);
       return null;
@@ -213,20 +230,21 @@ export const aiService = {
    */
   getDynamicSpecs: async (niche: string) => {
     try {
-      const response = await fetch('/api/ai/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          prompt: `Given the freelance niche "${niche}", determine which 4 key comparison specs/metrics matter most.`,
-          schema: {
-            type: SchemaType.OBJECT,
+      const response = await ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: `Given the freelance niche "${niche}", determine which 4 key comparison specs/metrics matter most.`,
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
             properties: {
-              specs: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING } }
+              specs: { type: Type.ARRAY, items: { type: Type.STRING } }
             }
           }
-        })
+        }
       });
-      const data = await response.json();
+      if (!response.text) throw new Error('Spec extraction failure.');
+      const data = JSON.parse(response.text);
       return data.specs || ["Pricing", "Speed", "Quality", "Rating"];
     } catch (error) {
       return ["Pricing", "Speed", "Quality", "Rating"];
@@ -238,26 +256,27 @@ export const aiService = {
    */
   discoverCompetitors: async (keywords: string[]) => {
     try {
-        const response = await fetch('/api/ai/generate', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            prompt: `Identify 3 top-performing fictional or common real-world freelancer/agency competitors for: ${keywords.join(", ")}`,
-            schema: {
-              type: SchemaType.ARRAY,
+        const response = await ai.models.generateContent({
+          model: "gemini-3-flash-preview",
+          contents: `Identify 3 top-performing fictional or common real-world freelancer/agency competitors for: ${keywords.join(", ")}`,
+          config: {
+            responseMimeType: "application/json",
+            responseSchema: {
+              type: Type.ARRAY,
               items: {
-                type: SchemaType.OBJECT,
+                type: Type.OBJECT,
                 properties: {
-                  name: { type: SchemaType.STRING },
-                  niche: { type: SchemaType.STRING },
-                  pricing: { type: SchemaType.STRING },
-                  specs: { type: SchemaType.OBJECT }
+                  name: { type: Type.STRING },
+                  niche: { type: Type.STRING },
+                  pricing: { type: Type.STRING },
+                  specs: { type: Type.OBJECT }
                 }
               }
             }
-          })
+          }
         });
-        return await response.json();
+        if (!response.text) throw new Error('Competitor discovery failure.');
+        return JSON.parse(response.text);
     } catch (error) {
       return [];
     }

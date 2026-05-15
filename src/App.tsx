@@ -7,9 +7,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { Toaster, toast } from 'sonner';
 
 function AppRoutes() {
-  const { user, loading } = useAuth();
-
-  if (loading) return null;
+  const { user } = useAuth();
 
   return (
     <>

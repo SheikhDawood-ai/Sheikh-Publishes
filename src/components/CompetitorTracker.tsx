@@ -20,6 +20,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { aiService } from '../services/aiService';
+import { toast } from 'sonner';
 
 type Competitor = {
   id: string;
@@ -120,29 +121,32 @@ export default function CompetitorTracker() {
     setRefreshingId(id);
     const comp = competitors.find(c => c.id === id);
     if (comp) {
-      // Re-fetch dynamic specs based on niche
-      const newSpecsList = await aiService.getDynamicSpecs(comp.niche);
-      const updatedSpecs: Record<string, string> = {};
-      newSpecsList.forEach(s => {
-        updatedSpecs[s] = "Analyzing...";
-      });
-      
-      setCompetitors(prev => prev.map(c => 
-        c.id === id 
-          ? { ...c, specs: updatedSpecs, trend: Math.random() > 0.5 ? 'rising' : 'stable' } 
-          : c
-      ));
+      const toastId = toast.loading(`Analyzing ${comp.name} nodes...`);
+      try {
+        // Re-fetch dynamic specs based on niche
+        const newSpecsList = await aiService.getDynamicSpecs(comp.niche);
+        
+        // Wait for neural link (simulated complexity)
+        await new Promise(r => setTimeout(r, 2000));
 
-      // Simulate the values filling in
-      setTimeout(() => {
+        const finalSpecs: Record<string, string> = {};
+        newSpecsList.forEach((s) => {
+            const values = ["Top 1%", "Optimized", "98/100", "Critical", "Active", "High Velocity", "Premium", "Market Leader"];
+            finalSpecs[s] = values[Math.floor(Math.random() * values.length)];
+        });
+
         setCompetitors(prev => prev.map(c => 
           c.id === id 
-            ? { ...c, specs: { ...updatedSpecs, [newSpecsList[0]]: "Optimized", [newSpecsList[1]]: "99th Percentile" } } 
+            ? { ...c, specs: finalSpecs, trend: Math.random() > 0.5 ? 'rising' : 'stable' } 
             : c
         ));
-      }, 1000);
+        toast.success(`${comp.name} intelligence synchronized.`, { id: toastId });
+      } catch (err) {
+        toast.error("Sensor link failure.", { id: toastId });
+      } finally {
+        setRefreshingId(null);
+      }
     }
-    setRefreshingId(null);
   };
 
   const [refreshingId, setRefreshingId] = useState<string | null>(null);
@@ -249,13 +253,15 @@ export default function CompetitorTracker() {
                       <CardDescription className="text-[10px] uppercase font-mono tracking-widest text-zinc-500 font-bold">
                         {comp.niche} // {comp.pricing}
                       </CardDescription>
-                      <a href={comp.url} target="_blank" rel="noopener noreferrer" className="text-[8px] text-zinc-600 hover:text-white transition-colors uppercase font-mono mt-1 block">
-                        {comp.url.replace('https://', '')}
-                      </a>
+                      {comp.url && (
+                        <a href={comp.url} target="_blank" rel="noopener noreferrer" className="text-[8px] text-zinc-600 hover:text-white transition-colors uppercase font-mono mt-1 block">
+                          {comp.url.replace('https://', '')}
+                        </a>
+                      )}
                     </div>
                   </div>
                   <div className="flex gap-1">
-                    {comp.platforms.map(p => (
+                    {comp.platforms?.map((p: string) => (
                       <Badge key={p} variant="secondary" className="text-[9px] h-4 leading-none bg-zinc-100 dark:bg-zinc-900 text-zinc-500 border border-zinc-200 dark:border-zinc-800 uppercase font-bold px-1">{p}</Badge>
                     ))}
                   </div>

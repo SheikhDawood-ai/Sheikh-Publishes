@@ -15,13 +15,5 @@ export default [
       },
     }
   ),
-  {
-    files: ['firestore.rules', 'DRAFT_firestore.rules'],
-    plugins: {
-      '@firebase/security-rules': firebaseRulesPlugin,
-    },
-    rules: {
-      ...firebaseRulesPlugin.configs['recommended'].rules,
-    },
-  },
+  firebaseRulesPlugin.configs['flat/recommended'],
 ];

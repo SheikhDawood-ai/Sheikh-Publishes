@@ -23,8 +23,9 @@ import { Badge } from './ui/badge';
 import { aiService } from '../services/aiService';
 
 import { useAuth } from '../context/AuthContext';
-import { doc, updateDoc } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../lib/firebase';
+import { handleFirestoreError, OperationType } from '../lib/firestoreUtils';
 
 type Profile = {
   id: string;
@@ -39,6 +40,39 @@ export default function ProfileSettings() {
   const [isUpgrading, setIsUpgrading] = useState(false);
   const [nlpInput, setNlpInput] = useState('');
   const [isParsing, setIsParsing] = useState(false);
+  
+  const [skillSets, setSkillSets] = useState('');
+  const [industryFocus, setIndustryFocus] = useState('');
+  const [isSavingCustom, setIsSavingCustom] = useState(false);
+
+  React.useEffect(() => {
+    if (user) {
+      getDoc(doc(db, 'users', user.uid)).then(docSnap => {
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          if (data.skillSets) setSkillSets(data.skillSets);
+          if (data.industryFocus) setIndustryFocus(data.industryFocus);
+        }
+      });
+    }
+  }, [user]);
+
+  const handleSaveCustom = async () => {
+    if (!user) return;
+    setIsSavingCustom(true);
+    try {
+      await updateDoc(doc(db, 'users', user.uid), {
+        skillSets,
+        industryFocus,
+        updatedAt: serverTimestamp()
+      });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, `users/${user.uid}`);
+    } finally {
+      setIsSavingCustom(false);
+    }
+  };
+
   const [profiles, setProfiles] = useState<Profile[]>([
     { id: 'p1', name: 'AI Solutions Ltd', niche: 'Automation', isPro: false }
   ]);
@@ -53,10 +87,10 @@ export default function ProfileSettings() {
       const userDocRef = doc(db, 'users', user.uid);
       await updateDoc(userDocRef, {
         subscriptionStatus: 'pro',
-        updatedAt: new Date().toISOString()
+        updatedAt: serverTimestamp()
       });
     } catch (err) {
-      console.error("Upgrade failed:", err);
+      handleFirestoreError(err, OperationType.UPDATE, `users/${user.uid}`);
     } finally {
       setIsUpgrading(false);
     }
@@ -107,6 +141,42 @@ export default function ProfileSettings() {
                   {isParsing ? <Loader2 className="w-3 h-3 animate-spin" /> : "Sync Shift"}
                 </Button>
               </div>
+            </CardContent>
+          </Card>
+
+          {/* Customization Settings */}
+          <Card className="glass-card bg-zinc-950 border-zinc-800">
+            <CardHeader>
+              <CardTitle className="text-sm font-black uppercase tracking-widest">Global Preferences</CardTitle>
+              <CardDescription className="text-xs">These parameters influence AI recommendations and external opportunities.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4 font-mono">
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label className="text-[10px] uppercase font-black tracking-widest text-zinc-500">Industry Focus</Label>
+                  <Input 
+                    placeholder="E.g. Web3, MedTech, SaaS" 
+                    className="bg-black border-zinc-800 text-xs" 
+                    value={industryFocus}
+                    onChange={(e) => setIndustryFocus(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-[10px] uppercase font-black tracking-widest text-zinc-500">Skill Sets</Label>
+                  <Input 
+                    placeholder="E.g. React, Node, AI Automation" 
+                    className="bg-black border-zinc-800 text-xs" 
+                    value={skillSets}
+                    onChange={(e) => setSkillSets(e.target.value)}
+                  />
+                </div>
+              </div>
+              <Button 
+                onClick={handleSaveCustom} 
+                className="w-full bg-white text-black hover:bg-zinc-200 text-[10px] font-black uppercase tracking-widest h-9"
+              >
+                {isSavingCustom ? <Loader2 className="w-3 h-3 animate-spin mr-2" /> : "Save Preferences"}
+              </Button>
             </CardContent>
           </Card>
 

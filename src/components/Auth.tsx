@@ -4,8 +4,6 @@ import {
   Command, 
   Mail, 
   Lock, 
-  ArrowRight, 
-  Github, 
   Chrome, 
   Loader2,
   ShieldCheck,
@@ -17,22 +15,29 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
+import { toast } from 'sonner';
 
 export default function Auth() {
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const { login } = useAuth();
+  const { login, loginWithEmail, signupWithEmail } = useAuth();
   const navigate = useNavigate();
 
   const handleGoogleLogin = async () => {
     setIsSubmitting(true);
+    const toastId = toast.loading("Connecting to Google Intelligence...");
     try {
       await login();
+      toast.success("Protocol Link Established", { id: toastId });
       navigate('/');
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
+      toast.error("Authentication Failed", { 
+        id: toastId,
+        description: err.message || "Please verify your credentials and retry."
+      });
     } finally {
       setIsSubmitting(false);
     }
@@ -41,11 +46,29 @@ export default function Auth() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
-    // Simulate email login
-    setTimeout(() => {
-      setIsSubmitting(false);
+    const toastId = toast.loading(isLogin ? "Verifying Credentials..." : "Initializing Neural Signature...");
+    
+    try {
+      if (isLogin) {
+        await loginWithEmail(email, password);
+        toast.success("Access Granted", { id: toastId });
+      } else {
+        await signupWithEmail(email, password);
+        toast.success("Account Initialized", { 
+          id: toastId,
+          description: "Your node has been added to the network."
+        });
+      }
       navigate('/');
-    }, 1500);
+    } catch (err: any) {
+      console.error(err);
+      toast.error(isLogin ? "Login Failed" : "Signup Failed", { 
+        id: toastId,
+        description: err.message || "Quantum interference detected. Please retry."
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (

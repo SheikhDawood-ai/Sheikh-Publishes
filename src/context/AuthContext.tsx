@@ -4,21 +4,28 @@ import {
   signInWithPopup, 
   GoogleAuthProvider, 
   signOut, 
-  User 
+  User,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword
 } from 'firebase/auth';
 import { 
   doc, 
   getDoc, 
   setDoc, 
-  onSnapshot 
+  onSnapshot,
+  serverTimestamp
 } from 'firebase/firestore';
 import { auth, db } from '../lib/firebase';
+import { handleFirestoreError, OperationType } from '../lib/firestoreUtils';
 
 interface AuthContextType {
   user: User | null;
   loading: boolean;
-  subscriptionStatus: 'guest' | 'free' | 'pro';
+  statusResolved: boolean;
+  subscriptionStatus: 'guest' | 'free' | 'pro' | null;
   login: () => Promise<void>;
+  loginWithEmail: (email: string, pass: string) => Promise<void>;
+  signupWithEmail: (email: string, pass: string) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -27,40 +34,50 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
-  const [subscriptionStatus, setSubscriptionStatus] = useState<'guest' | 'free' | 'pro'>('guest');
+  const [statusResolved, setStatusResolved] = useState(false);
+  const [subscriptionStatus, setSubscriptionStatus] = useState<'guest' | 'free' | 'pro' | null>(null);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser);
       
       if (currentUser) {
-        // Authenticated user
+        setLoading(true); // Re-enter loading for entitlement fetch
         const userDocRef = doc(db, 'users', currentUser.uid);
         
-        // Listen for real-time updates to subscription status
-        const unsubscribeDoc = onSnapshot(userDocRef, async (docSnap) => {
-          if (docSnap.exists()) {
-            setSubscriptionStatus(docSnap.data().subscriptionStatus || 'free');
+        // Ensure doc exists for new users (immediate initialization)
+        const docSnap = await getDoc(userDocRef);
+        if (!docSnap.exists()) {
+          await setDoc(userDocRef, {
+            uid: currentUser.uid,
+            email: currentUser.email,
+            subscriptionStatus: 'free',
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp()
+          });
+        }
+
+        // Real-time listener for entititements
+        const unsubscribeDoc = onSnapshot(userDocRef, (snap) => {
+          if (snap.exists()) {
+            setSubscriptionStatus(snap.data().subscriptionStatus || 'free');
           } else {
-            // New user initialization
-            const initialData = {
-              uid: currentUser.uid,
-              email: currentUser.email,
-              displayName: currentUser.displayName,
-              subscriptionStatus: 'free',
-              createdAt: new Date().toISOString()
-            };
-            await setDoc(userDocRef, initialData);
             setSubscriptionStatus('free');
           }
           setLoading(false);
+          setStatusResolved(true);
+        }, (error) => {
+          console.error("Critical: Entitlement Signal Interrupted", error);
+          setSubscriptionStatus('free');
+          setLoading(false);
+          setStatusResolved(true);
         });
 
         return () => unsubscribeDoc();
       } else {
-        // Guest mode
         setSubscriptionStatus('guest');
         setLoading(false);
+        setStatusResolved(true);
       }
     });
 
@@ -73,6 +90,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await signInWithPopup(auth, provider);
     } catch (error) {
       console.error("Login failed:", error);
+      throw error;
+    }
+  };
+
+  const loginWithEmail = async (email: string, pass: string) => {
+    try {
+      await signInWithEmailAndPassword(auth, email, pass);
+    } catch (error) {
+      console.error("Email login failed:", error);
+      throw error;
+    }
+  };
+
+  const signupWithEmail = async (email: string, pass: string) => {
+    try {
+      await createUserWithEmailAndPassword(auth, email, pass);
+    } catch (error) {
+      console.error("Email signup failed:", error);
+      throw error;
     }
   };
 
@@ -85,7 +121,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, subscriptionStatus, login, logout }}>
+    <AuthContext.Provider value={{ user, loading, statusResolved, subscriptionStatus, login, loginWithEmail, signupWithEmail, logout }}>
       {children}
     </AuthContext.Provider>
   );

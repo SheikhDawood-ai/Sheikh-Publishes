@@ -1,16 +1,19 @@
 import React, { useState } from 'react';
 import { motion } from 'motion/react';
-import { Check, Zap, Sparkles, Shield, Rocket, Loader2 } from 'lucide-react';
+import { Check, Zap, Sparkles, Shield, Rocket, Loader2, ArrowRight } from 'lucide-react';
 import { Button } from './ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card';
-import GooglePayButton from '@google-pay/button-react';
 import { useAuth } from '../context/AuthContext';
-import { doc, updateDoc } from 'firebase/firestore';
+import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../lib/firebase';
+import { handleFirestoreError, OperationType } from '../lib/firestoreUtils';
+import PaymentModal from './PaymentModal';
 
 export default function Pricing({ onUpgrade }: { onUpgrade: (tier: string) => void }) {
   const { user, subscriptionStatus, login } = useAuth();
   const [upgrading, setUpgrading] = useState(false);
+  const [selectedTier, setSelectedTier] = useState<any>(null);
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
 
   const tiers = [
     {
@@ -35,18 +38,27 @@ export default function Pricing({ onUpgrade }: { onUpgrade: (tier: string) => vo
     }
   ];
 
-  const handleUpgradeSuccess = async (tier: string) => {
+  const handleInitiateUpgrade = (tier: any) => {
+    if (!user) {
+      login();
+      return;
+    }
+    setSelectedTier(tier);
+    setShowPaymentModal(true);
+  };
+
+  const handleUpgradeSuccess = async () => {
     if (!user) return;
     setUpgrading(true);
     try {
       const userDocRef = doc(db, 'users', user.uid);
       await updateDoc(userDocRef, {
         subscriptionStatus: 'pro',
-        updatedAt: new Date().toISOString()
+        updatedAt: serverTimestamp()
       });
       onUpgrade('pro');
     } catch (err) {
-      console.error("Upgrade failed:", err);
+      handleFirestoreError(err, OperationType.UPDATE, `users/${user.uid}`);
     } finally {
       setUpgrading(false);
     }
@@ -104,10 +116,10 @@ export default function Pricing({ onUpgrade }: { onUpgrade: (tier: string) => vo
 
                   <div className="pt-6">
                     {isCurrent ? (
-                      <Button disabled className="w-full bg-zinc-800 text-zinc-500 font-black uppercase tracking-widest py-6 h-14">
-                        Active Plan
-                      </Button>
-                    ) : showGPay ? (
+                      <div className="w-full bg-zinc-900/50 border border-zinc-800 text-zinc-600 font-black text-[10px] uppercase tracking-[0.3em] py-5 text-center rounded-lg">
+                        Tactical Hold • Active
+                      </div>
+                    ) : (
                       <div className="space-y-4">
                         {!user ? (
                           <Button onClick={login} className="w-full bg-white text-black font-black uppercase tracking-widest py-6 h-14">
@@ -118,55 +130,17 @@ export default function Pricing({ onUpgrade }: { onUpgrade: (tier: string) => vo
                              <Loader2 className="w-4 h-4 animate-spin" /> Processing
                            </Button>
                         ) : (
-                          <GooglePayButton
-                            environment="TEST"
-                            buttonColor="white"
-                            buttonType="subscribe"
-                            paymentRequest={{
-                              apiVersion: 2,
-                              apiVersionMinor: 0,
-                              allowedPaymentMethods: [
-                                {
-                                  type: 'CARD',
-                                  parameters: {
-                                    allowedAuthMethods: ['PAN_ONLY', 'CRYPTOGRAM_3DS'],
-                                    allowedCardNetworks: ['MASTERCARD', 'VISA'],
-                                  },
-                                  tokenizationSpecification: {
-                                    type: 'PAYMENT_GATEWAY',
-                                    parameters: {
-                                      gateway: 'example',
-                                      gatewayMerchantId: 'exampleGatewayMerchantId',
-                                    },
-                                  },
-                                },
-                              ],
-                              merchantInfo: {
-                                merchantId: '12345678901234567890',
-                                merchantName: 'LancerIntel Pro',
-                              },
-                              transactionInfo: {
-                                totalPriceStatus: 'FINAL',
-                                totalPriceLabel: 'Monthly Subscription',
-                                totalPrice: '99.00',
-                                currencyCode: 'USD',
-                                countryCode: 'US',
-                              },
-                            }}
-                            onLoadPaymentData={(paymentRequest) => {
-                              console.log('load payment data', paymentRequest);
-                              handleUpgradeSuccess('pro');
-                            }}
-                            className="w-full"
-                            style={{ width: '100%', height: '56px' }}
-                          />
+                          <Button 
+                            onClick={() => handleInitiateUpgrade(tier)} 
+                            className={`w-full py-6 h-14 font-black uppercase tracking-widest transition-all hover:scale-[1.02] active:scale-95 text-xs ${
+                              tier.featured ? 'bg-white text-black hover:bg-zinc-200' : 'bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white'
+                            }`}
+                          >
+                             {tier.buttonText} <ArrowRight className="ml-2 w-4 h-4" />
+                          </Button>
                         )}
                         <p className="text-[9px] text-center text-zinc-600 font-mono uppercase tracking-widest">Quantum-Encrypted Gateway</p>
                       </div>
-                    ) : (
-                      <Button onClick={login} variant="outline" className="w-full border-zinc-800 text-white font-black uppercase tracking-widest py-6 h-14">
-                        Initialize Access
-                      </Button>
                     )}
                   </div>
                 </CardContent>
@@ -175,6 +149,15 @@ export default function Pricing({ onUpgrade }: { onUpgrade: (tier: string) => vo
           );
         })}
       </div>
+
+      {selectedTier && (
+        <PaymentModal 
+          isOpen={showPaymentModal}
+          onClose={() => setShowPaymentModal(false)}
+          onSuccess={handleUpgradeSuccess}
+          tier={selectedTier}
+        />
+      )}
 
       <div className="bg-zinc-900/30 border border-zinc-800 rounded-3xl p-12 text-center space-y-6 max-w-4xl mx-auto">
         <Rocket className="w-10 h-10 text-amber-500 mx-auto" />

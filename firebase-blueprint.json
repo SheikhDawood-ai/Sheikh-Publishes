@@ -41,6 +41,22 @@
         "scores": { "type": "object" },
         "profileId": { "type": "string", "description": "The profile this opportunity was surfaced for." }
       }
+    },
+    "Signal": {
+      "title": "Market Signal",
+      "description": "A global market trend or intelligence piece.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "category": { "type": "string" },
+        "impact": { "type": "string" },
+        "description": { "type": "string" },
+        "source": { "type": "string" },
+        "sentiment": { "type": "string" },
+        "timeAgo": { "type": "string" },
+        "growthRate": { "type": "string" }
+      }
     }
   },
   "firestore": {
@@ -55,6 +71,14 @@
     "users/{userId}/profiles/{profileId}/opportunities": {
       "schema": "Opportunity",
       "description": "Surfaced opportunities for a specific profile."
+    },
+    "signals": {
+      "schema": "Signal",
+      "description": "Global market signals feed."
+    },
+    "market_postings": {
+      "schema": "Opportunity",
+      "description": "Global market job postings feed."
     }
   }
 }

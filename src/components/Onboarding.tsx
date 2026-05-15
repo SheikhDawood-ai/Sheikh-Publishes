@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Sparkles, ArrowRight, MessageSquare, Briefcase, Zap, Globe, Loader2, Bot } from 'lucide-react';
+import { Sparkles, ArrowRight, MessageSquare, Briefcase, Zap, Globe, Loader2, Bot, RefreshCcw } from 'lucide-react';
 import { Button } from './ui/button';
 import { Card, CardContent } from './ui/card';
 import { Input } from './ui/input';
@@ -20,7 +20,17 @@ export default function Onboarding({ onComplete }: { onComplete: (profile: any) 
   const [streamingContent, setStreamingContent] = useState('');
   const [quickChips, setQuickChips] = useState<string[]>(["Web Development", "AI Automation", "UI/UX Design", "Marketing Strategy"]);
   const [step, setStep] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+  const [lastInput, setLastInput] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  const handleRetry = () => {
+    if (lastInput) {
+       // Rollback the last error message if any
+       setError(null);
+       handleSubmit(undefined, lastInput);
+    }
+  };
 
   const skipOnboarding = () => {
     onComplete({
@@ -34,18 +44,20 @@ export default function Onboarding({ onComplete }: { onComplete: (profile: any) 
 
   useEffect(() => {
     scrollRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, streamingContent]);
+  }, [messages, streamingContent, error]);
 
   const handleSubmit = async (e?: React.FormEvent, overrideText?: string) => {
     if (e) e.preventDefault();
     const userMsg = overrideText || input;
     if (!userMsg.trim() || isTyping) return;
 
+    setLastInput(userMsg);
     setMessages(prev => [...prev, { role: 'user', text: userMsg }]);
     setInput('');
     setIsTyping(true);
     setStreamingContent('');
     setQuickChips([]);
+    setError(null);
 
     try {
       const history = messages.slice(-4).map(m => ({
@@ -58,6 +70,8 @@ export default function Onboarding({ onComplete }: { onComplete: (profile: any) 
         history,
         (text) => setStreamingContent(text)
       );
+
+      if (!response) throw new Error("Neural link unstable. Retry required.");
 
       // Clean response and extract chips
       const rawText = response.text;
@@ -81,8 +95,10 @@ export default function Onboarding({ onComplete }: { onComplete: (profile: any) 
           });
         }, 1500);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
+      setError(err.message || "Consultant link severed. Attempting reconnection...");
+      // Optimistic Rollback logic: the message was added, but we mark the failure
     } finally {
       setIsTyping(false);
       setStreamingContent('');
@@ -178,6 +194,23 @@ export default function Onboarding({ onComplete }: { onComplete: (profile: any) 
                   <motion.div animate={{ opacity: [0.4, 1, 0.4] }} transition={{ repeat: Infinity, duration: 1, delay: 0.2 }} className="w-1.5 h-1.5 bg-zinc-400 rounded-full" />
                   <motion.div animate={{ opacity: [0.4, 1, 0.4] }} transition={{ repeat: Infinity, duration: 1, delay: 0.4 }} className="w-1.5 h-1.5 bg-zinc-400 rounded-full" />
                 </div>
+              )}
+
+              {error && (
+                <motion.div 
+                  initial={{ opacity: 0, scale: 0.95 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  className="flex flex-col items-center gap-3 p-6 bg-rose-500/5 border border-rose-500/20 rounded-2xl text-center"
+                >
+                  <p className="text-[10px] font-black uppercase tracking-widest text-rose-500">{error}</p>
+                  <Button 
+                    onClick={handleRetry} 
+                    variant="outline" 
+                    className="border-rose-500/30 text-rose-500 hover:bg-rose-500/10 text-[9px] font-black uppercase h-8"
+                  >
+                    <RefreshCcw className="w-3 h-3 mr-2" /> Retry Neural Sync
+                  </Button>
+                </motion.div>
               )}
               <div ref={scrollRef} />
             </div>

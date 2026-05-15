@@ -10,8 +10,6 @@ import {
   Search,
   LayoutDashboard,
   CreditCard,
-  Moon,
-  Sun,
   Target,
   Mic,
   ChevronDown,
@@ -19,8 +17,12 @@ import {
   Command,
   UserCircle,
   Menu,
-  ArrowRight
+  ArrowRight,
+  MessagesSquare,
+  Lightbulb,
+  Globe
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { Button, buttonVariants } from './ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
@@ -32,7 +34,8 @@ import {
   DropdownMenuItem, 
   DropdownMenuTrigger,
   DropdownMenuSeparator,
-  DropdownMenuLabel 
+  DropdownMenuLabel,
+  DropdownMenuGroup
 } from './ui/dropdown-menu';
 import {
   Dialog,
@@ -50,7 +53,10 @@ import Onboarding from './Onboarding';
 import Pricing from './Pricing';
 import ChatAssistant from './ChatAssistant';
 
-import { useNavigate } from 'react-router-dom';
+import { Tooltip, TooltipProvider, TooltipContent, TooltipTrigger } from './ui/tooltip';
+import { collection, query, limit, onSnapshot, orderBy } from 'firebase/firestore';
+import { db } from '../lib/firebase';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import OpportunityCard from './OpportunityCard';
 import PulseSignalCard from './PulseSignalCard';
 
@@ -123,24 +129,49 @@ const OPPORTUNITIES = [
 
 import { useAuth } from '../context/AuthContext';
 
-const SidebarItem = ({ icon: Icon, label, active = false, onClick }: any) => (
-  <button 
-    onClick={onClick}
-    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 group ${
-      active 
-        ? 'bg-white text-black shadow-[0_0_15px_rgba(255,255,255,0.1)]' 
-        : 'text-zinc-500 hover:text-white hover:bg-zinc-900'
-    }`}
-  >
-    <Icon className={`w-4 h-4 ${active ? '' : 'group-hover:scale-110 transition-transform'}`} />
-    <span className="text-sm font-bold tracking-tight uppercase tracking-widest text-[10px]">{label}</span>
-  </button>
+const NICHE_ICONS: Record<string, any> = {
+  'Automation': Settings,
+  'Strategy': Lightbulb,
+  'Market Entry': Globe,
+  'Freelancing': Zap,
+  'SaaS Labs': Briefcase,
+  'General Freelancing': Target
+};
+
+const SidebarItem = ({ icon: Icon, label, active = false, onClick, tooltip }: any) => (
+  <TooltipProvider>
+    <Tooltip>
+      <TooltipTrigger>
+        <div 
+          onClick={onClick}
+          className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 group cursor-pointer ${
+            active 
+              ? 'bg-white text-black shadow-[0_0_15px_rgba(255,255,255,0.1)]' 
+              : 'text-zinc-500 hover:text-white hover:bg-zinc-900'
+          }`}
+        >
+          <Icon className={`w-4 h-4 ${active ? '' : 'group-hover:scale-110 transition-transform'}`} />
+          <span className="text-sm font-bold tracking-tight uppercase tracking-widest text-[10px]">{label}</span>
+        </div>
+      </TooltipTrigger>
+      {tooltip && (
+        <TooltipContent side="right" className="bg-zinc-900 border-zinc-800 text-zinc-300 font-mono text-[10px] uppercase p-3 w-48 shadow-xl">
+          {tooltip}
+        </TooltipContent>
+      )}
+    </Tooltip>
+  </TooltipProvider>
 );
 
 export default function Dashboard() {
-  const { user, login, logout, subscriptionStatus, loading } = useAuth();
+  const { user, login, logout, subscriptionStatus, loading, statusResolved } = useAuth();
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState('feed');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab = searchParams.get('tab') || 'feed';
+
+  const setActiveTab = (tab: string) => {
+    setSearchParams({ tab });
+  };
   const [showOnboarding, setShowOnboarding] = useState(() => !localStorage.getItem('lancer_intel_profile'));
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   
@@ -156,21 +187,83 @@ export default function Dashboard() {
     { id: 'p1', name: 'Freelance Profile', niche: 'Automation', isGuest: false },
     { id: 'p2', name: 'Agency Profile', niche: 'SaaS Labs', isGuest: false }
   ]);
-  const [isChatOpen, setIsChatOpen] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
 
   useEffect(() => {
-    if (user) {
-      // Sync active profile name with user display name if it's the default
-      if (activeProfile.name === 'AI Solutions Ltd' && user.displayName) {
-        setActiveProfile(prev => ({ ...prev, name: user.displayName! }));
+    // System Health Check & Diagnostics
+    console.log(`%c[LancerIntel] Firebase: %cConnected (Long Polling: Enabled)`, "color: #fbbf24; font-weight: bold;", "color: #10b981;");
+    console.log(`%c[LancerIntel] Auth State: %c[${subscriptionStatus?.toUpperCase()}]`, "color: #fbbf24; font-weight: bold;", "color: #6366f1;");
+    console.log(`%c[LancerIntel] Neural Link: %cActive`, "color: #fbbf24; font-weight: bold;", "color: #10b981;");
+  }, [subscriptionStatus]);
+
+  useEffect(() => {
+    if (user && !loading && subscriptionStatus === 'pro') {
+      if (activeProfile.isGuest) {
+        setActiveProfile(prev => ({ 
+          ...prev, 
+          isGuest: false, 
+          name: user.displayName || 'Pro Agency Profile' 
+        }));
       }
+    } else if (user && !loading && subscriptionStatus === 'free') {
+      if (activeProfile.isGuest) {
+        setActiveProfile(prev => ({ 
+          ...prev, 
+          isGuest: false, 
+          name: user.displayName || 'Standard Agency' 
+        }));
+      }
+    } else if (!user && !loading) {
+       if (!activeProfile.isGuest) {
+          setActiveProfile({ id: 'p1', name: 'Guest Venture', niche: 'Automation', isGuest: true });
+       }
     }
-  }, [user]);
+  }, [user, subscriptionStatus, loading, activeProfile.isGuest]);
 
   useEffect(() => {
     localStorage.setItem('lancer_intel_profile', JSON.stringify(activeProfile));
   }, [activeProfile]);
+
+  const [signals, setSignals] = useState<any[]>([]);
+  const [marketPostings, setMarketPostings] = useState<any[]>([]);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // Firestore Sync: Global Intelligence Feed
+  // This listener is global but components react to it instantly
+  useEffect(() => {
+    const signalsQuery = query(
+      collection(db, 'signals'),
+      orderBy('timeAgo', 'desc'),
+      limit(20)
+    );
+
+    const postingsQuery = query(
+      collection(db, 'market_postings'),
+      orderBy('id', 'desc'),
+      limit(20)
+    );
+
+    const unsubSignals = onSnapshot(signalsQuery, (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setSignals(data.length > 0 ? data : PULSE_SIGNALS);
+    }, (error) => {
+      console.warn("Signals sync error - using fallback:", error);
+      setSignals(PULSE_SIGNALS);
+    });
+
+    const unsubPostings = onSnapshot(postingsQuery, (snapshot) => {
+       const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+       setMarketPostings(data.length > 0 ? data : OPPORTUNITIES);
+    }, (error) => {
+       console.warn("Postings sync error - using fallback:", error);
+       setMarketPostings(OPPORTUNITIES);
+    });
+
+    return () => {
+      unsubSignals();
+      unsubPostings();
+    };
+  }, []);
 
   const handleOnboardingComplete = (profile: any) => {
     setActiveProfile(profile);
@@ -179,30 +272,72 @@ export default function Dashboard() {
   };
 
   const navigateToTab = (tab: string) => {
-    const restrictedTabs = ['market', 'audio'];
+    const restrictedTabs = ['market', 'audio', 'finance'];
     if (isGuest && restrictedTabs.includes(tab)) {
       setShowAuthModal(true);
-      return;
-    }
-    if (!isPro && restrictedTabs.includes(tab)) {
-      setActiveTab('pricing');
       return;
     }
     setActiveTab(tab);
     setIsSidebarOpen(false);
   };
 
-  const handleUpgrade = (tier: string) => {
-    // In real app, the subscription status will update via Firestore listener
-    setActiveTab('feed');
-  };
+  // Memoized Content to prevent destruction of states (like AI Stream)
+  const tabContent = React.useMemo(() => {
+    return {
+      feed: (
+        <div className="space-y-6">
+          <div className="flex items-center justify-between mb-8">
+            <div className="space-y-1">
+               <h3 className="text-xl font-black uppercase tracking-tight">Active Market Signals</h3>
+               <p className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest">Real-time global intelligence nexus</p>
+            </div>
+            <div className="flex gap-4">
+              <Button 
+                onClick={() => {
+                  const id = toast.loading("Initializing Quantum Scan...");
+                  setTimeout(() => {
+                    toast.success("Synthesis Complete", { id, description: "Grid sync successful." });
+                  }, 1500);
+                }}
+                className="bg-white text-black hover:bg-zinc-200 text-[10px] uppercase font-black tracking-widest h-9 px-6"
+              >
+                 <Sparkles className="w-3 h-3 mr-2 text-amber-500" /> Launch Analysis
+              </Button>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 gap-4">
+            {signals.map((signal) => (
+              <PulseSignalCard key={signal.id} signal={signal} onExplore={() => navigateToTab('assistant')} />
+            ))}
+          </div>
+        </div>
+      ),
+      opportunities: (
+        <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-8">
+          {marketPostings.map((opp) => (
+            <OpportunityCard key={opp.id} opp={opp} />
+          ))}
+        </div>
+      ),
+      competitors: <CompetitorTracker />,
+      assistant: <ChatAssistant profile={activeProfile} />,
+      finance: <FinancialHub />,
+      market: <MarketInsights />,
+      audio: <AudioIntel />,
+      pricing: <Pricing onUpgrade={() => setActiveTab('feed')} />,
+      settings: <ProfileSettings />
+    };
+  }, [activeTab, signals, marketPostings, activeProfile, isPro, isGuest]);
 
-  if (loading) {
+  if (!statusResolved) {
     return (
       <div className="min-h-screen bg-black flex items-center justify-center">
-        <div className="flex flex-col items-center gap-4">
-          <Command className="w-12 h-12 text-white animate-pulse" />
-          <span className="text-[10px] font-mono text-zinc-500 uppercase tracking-[0.3em]">Synching Quantum Edge...</span>
+        <div className="flex flex-col items-center gap-6">
+          <div className="w-20 h-20 bg-zinc-900 border border-zinc-800 rounded-2xl flex items-center justify-center shadow-[0_0_50px_rgba(245,158,11,0.1)] relative overflow-hidden">
+            <div className="absolute inset-0 bg-amber-500/10 animate-pulse" />
+            <Command className="w-10 h-10 text-amber-500 relative z-10 animate-spin-slow" />
+          </div>
+          <span className="text-[12px] font-black text-white uppercase tracking-[0.4em] drop-shadow-lg">Synchronizing Entitlement Data...</span>
         </div>
       </div>
     );
@@ -262,13 +397,14 @@ export default function Dashboard() {
         </div>
 
         <nav className="flex flex-col gap-2">
-          <SidebarItem icon={LayoutDashboard} label="Pulse Feed" active={activeTab === 'feed'} onClick={() => navigateToTab('feed')} />
-          <SidebarItem icon={Target} label="Opportunities" active={activeTab === 'opportunities'} onClick={() => navigateToTab('opportunities')} />
-          <SidebarItem icon={Users} label="Competitors" active={activeTab === 'competitors'} onClick={() => navigateToTab('competitors')} />
-          <SidebarItem icon={TrendingUp} label="Insights" active={activeTab === 'market'} onClick={() => navigateToTab('market')} />
-          <SidebarItem icon={Mic} label="Audio Intel" active={activeTab === 'audio'} onClick={() => navigateToTab('audio')} />
-          <SidebarItem icon={CreditCard} label="Payment Hub" active={activeTab === 'finance'} onClick={() => navigateToTab('finance')} />
-          <SidebarItem icon={Zap} label="Pricing" active={activeTab === 'pricing'} onClick={() => navigateToTab('pricing')} />
+          <SidebarItem icon={LayoutDashboard} label="Pulse Feed" active={activeTab === 'feed'} onClick={() => navigateToTab('feed')} tooltip="Real-time global intelligence nexus" />
+          <SidebarItem icon={Target} label="Opportunities" active={activeTab === 'opportunities'} onClick={() => navigateToTab('opportunities')} tooltip="Discover high-margin gigs" />
+          <SidebarItem icon={Users} label="Competitors" active={activeTab === 'competitors'} onClick={() => navigateToTab('competitors')} tooltip="Track top agencies globally" />
+          <SidebarItem icon={MessagesSquare} label="AI Assistant" active={activeTab === 'assistant'} onClick={() => navigateToTab('assistant')} tooltip="Neural strategist & advisor" />
+          <SidebarItem icon={TrendingUp} label="Insights" active={activeTab === 'market'} onClick={() => navigateToTab('market')} tooltip="Macro shifts & sentiment" />
+          <SidebarItem icon={Mic} label="Audio Intel" active={activeTab === 'audio'} onClick={() => navigateToTab('audio')} tooltip="Extract signal from noise" />
+          <SidebarItem icon={CreditCard} label="Payment Hub" active={activeTab === 'finance'} onClick={() => navigateToTab('finance')} tooltip="Payouts & projections" />
+          <SidebarItem icon={Zap} label="Pricing" active={activeTab === 'pricing'} onClick={() => navigateToTab('pricing')} tooltip="Upgrade your license" />
         </nav>
 
         <div className="mt-auto space-y-6">
@@ -308,6 +444,7 @@ export default function Dashboard() {
               {activeTab === 'feed' ? 'Intelligence Pulse' : 
                activeTab === 'opportunities' ? 'Global Markets' :
                activeTab === 'competitors' ? 'Competitive Map' :
+               activeTab === 'assistant' ? 'Neural Strategist' :
                activeTab === 'finance' ? 'Payout Gateway' : 
                activeTab === 'audio' ? 'Signal Extraction' :
                activeTab === 'pricing' ? 'Upgrade License' :
@@ -321,36 +458,46 @@ export default function Dashboard() {
                 <ChevronDown className="w-3 h-3 text-zinc-500" />
               </DropdownMenuTrigger>
               <DropdownMenuContent className="w-56 bg-zinc-950 border-zinc-800">
-                <DropdownMenuLabel className="text-[10px] uppercase text-zinc-500">Business Profiles</DropdownMenuLabel>
-                <DropdownMenuSeparator className="bg-zinc-800" />
-                {profiles.map(p => (
-                  <DropdownMenuItem 
-                    key={p.id} 
-                    onClick={() => setActiveProfile(p)}
-                    className="flex justify-between items-center group cursor-pointer"
-                  >
-                    <span className="text-xs font-bold">{p.name}</span>
-                    {p.id === activeProfile.id && <div className="w-1.5 h-1.5 rounded-full bg-amber-500" />}
-                  </DropdownMenuItem>
-                ))}
+                <DropdownMenuGroup>
+                  <DropdownMenuLabel className="text-[10px] uppercase text-zinc-500">Business Profiles</DropdownMenuLabel>
+                  <DropdownMenuSeparator className="bg-zinc-800" />
+                  {profiles.map(p => {
+                    const NicheIcon = NICHE_ICONS[p.niche] || Target;
+                    return (
+                      <DropdownMenuItem 
+                        key={p.id} 
+                        onClick={() => setActiveProfile(p)}
+                        className="flex justify-between items-center group cursor-pointer"
+                      >
+                        <div className="flex items-center gap-2">
+                          <NicheIcon className="w-3.5 h-3.5 text-zinc-500 group-hover:text-amber-500 transition-colors" />
+                          <span className="text-xs font-bold">{p.name}</span>
+                        </div>
+                        {p.id === activeProfile.id && <div className="w-1.5 h-1.5 rounded-full bg-amber-500" />}
+                      </DropdownMenuItem>
+                    );
+                  })}
+                </DropdownMenuGroup>
                 {isPro && (
-                  <>
+                  <DropdownMenuGroup>
                     <DropdownMenuSeparator className="bg-zinc-800" />
                     <DropdownMenuItem className="text-[10px] uppercase font-black text-amber-500 cursor-pointer" onClick={() => setActiveTab('settings')}>
                       + Add New Profile (Pro)
                     </DropdownMenuItem>
-                  </>
+                  </DropdownMenuGroup>
                 )}
-                <DropdownMenuSeparator className="bg-zinc-800" />
-                {isGuest ? (
-                  <DropdownMenuItem onClick={login} className="text-[10px] uppercase font-black text-white hover:bg-white hover:text-black cursor-pointer">
-                    Login / Sign Up
-                  </DropdownMenuItem>
-                ) : (
-                  <DropdownMenuItem onClick={logout} className="text-[10px] uppercase font-black text-rose-500 cursor-pointer">
-                    Sign Out
-                  </DropdownMenuItem>
-                )}
+                <DropdownMenuGroup>
+                  <DropdownMenuSeparator className="bg-zinc-800" />
+                  {isGuest ? (
+                    <DropdownMenuItem onClick={login} className="text-[10px] uppercase font-black text-white hover:bg-white hover:text-black cursor-pointer">
+                      Login / Sign Up
+                    </DropdownMenuItem>
+                  ) : (
+                    <DropdownMenuItem onClick={logout} className="text-[10px] uppercase font-black text-rose-500 cursor-pointer">
+                      Sign Out
+                    </DropdownMenuItem>
+                  )}
+                </DropdownMenuGroup>
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
@@ -382,42 +529,11 @@ export default function Dashboard() {
               exit={{ opacity: 0, y: -10 }}
               transition={{ duration: 0.3 }}
             >
-              {activeTab === 'opportunities' && (
-                <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-8">
-                  {OPPORTUNITIES.map((opp) => (
-                    <OpportunityCard key={opp.id} opp={opp} />
-                  ))}
-                </div>
-              )}
-
-              {activeTab === 'feed' && (
-                <div className="space-y-6">
-                  <div className="flex items-center justify-between mb-8">
-                    <div className="space-y-1">
-                       <h3 className="text-xl font-black uppercase tracking-tight">Active Market Signals</h3>
-                       <p className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest">Real-time global intelligence nexus</p>
-                    </div>
-                    <Badge variant="outline" className="text-[10px] border-emerald-500/30 text-emerald-500 bg-emerald-500/5 px-3 py-1">Tactical Link Established</Badge>
-                  </div>
-                  <div className="grid grid-cols-1 gap-4">
-                    {PULSE_SIGNALS.map((signal) => (
-                      <PulseSignalCard key={signal.id} signal={signal} onExplore={() => setIsChatOpen(true)} />
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {activeTab === 'competitors' && <CompetitorTracker />}
-              {activeTab === 'finance' && <FinancialHub />}
-              {activeTab === 'market' && <MarketInsights />}
-              {activeTab === 'audio' && <AudioIntel />}
-              {activeTab === 'pricing' && <Pricing onUpgrade={handleUpgrade} />}
-              {activeTab === 'settings' && <ProfileSettings />}
+              {(tabContent as any)[activeTab] || tabContent.feed}
             </motion.div>
           </AnimatePresence>
         </section>
       </main>
-      <ChatAssistant isOpen={isChatOpen} setIsOpen={setIsChatOpen} profile={activeProfile} />
     </div>
   );
 }
